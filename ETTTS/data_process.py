@@ -57,4 +57,6 @@ for audio_name in audio_list:
 
         li = []
         for c in text:
-            li.append(char)
+            li.append(chars.index(c))
+        
+        x = np.array(li, dtype='i')
