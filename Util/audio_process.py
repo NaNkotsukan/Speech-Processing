@@ -1,5 +1,6 @@
 from librosa.core import load, stft
 from librosa.output import write_wav
+import pyworld as pw
 import numpy as np
 
 def Audio2MelSpectrogram(audio, sr, melsize, fftsize, windowsize, windowsshiftsize, topDB=100):
@@ -28,6 +29,10 @@ def Audio2Spectrogram(audio, sr, fftsize, windowsize, windowshiftsize=None):
     mag /= (mag//2)
 
     return mag, phase
+
+def Audio2MFCC(audio, sr=16000, n_mfcc=20, n_fft=2048, hop_length=512):
+
+    return librosa.feature.mfcc(audio,sr,n_mfcc=n_mfcc, n_fft=n_fft, hop_length~hop_length).T
 
 def Spectrogram2Audio(mag, phase, sr, fftsize=512, windowsize=400, windowshiftsize=None, scaletype=0):
     if windowshiftsize is None:
@@ -103,3 +108,11 @@ def ConcatAudio(slices, scale_time, scale_freq, step_time=None):
     data /= scale_matrix
     
     return data
+
+def ExtractSP(audio, sr):
+    f0, t = pw.dio(audio, sr)
+    f0 = pw.stonemask(audio, f0, t, sr)
+    sp = pw.cheaptrick(data, f0, r, sr)
+    ap = pw.d4c(data, f0, t, sr)
+
+    return f0,sp,ap
