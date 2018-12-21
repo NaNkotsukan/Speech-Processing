@@ -42,7 +42,8 @@ if not os.path.exists(text_path):
 audio_list = os.listdir(audio_path)
 for audio_name in audio_list:
     audio_name = audio_path + audio_name
-    text_name = audio_name.split('.')[0] + '.txt'
+    basename = audio_name.split('.')[0]
+    text_name = basename + '.txt'
 
     with open(text_name, 'r', 'utf8') as f:
         text = f.read()
@@ -54,9 +55,11 @@ for audio_name in audio_list:
         audio,sr = load(audio_list, sr=sampling_rate, mono=True)
         mel = Audio2MelSpectrogram(audio, sr, melsize=128, fftsize=512, windowsize=400, windowsshiftsize=160)
         mel = (mel / np.max(mel)) ** 0.6
+        np.save('./data/audio/'+basename+'.npy', mel)
 
         li = []
         for c in text:
             li.append(chars.index(c))
         
         x = np.array(li, dtype='i')
+        np.save('./data/text/'+basename+'.npy', x)
