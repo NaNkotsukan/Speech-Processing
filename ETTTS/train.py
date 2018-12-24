@@ -7,6 +7,7 @@ import os
 import argparse
 import pylab
 from model import AudioDec,AudioEnc,TextEnc
+from dataset import batch_make
 
 xp=cuda.cupy
 cuda.get_device(0).use()
@@ -49,37 +50,12 @@ te_opt=set_optimizer(text_encoder)
 for epoch in range(epochs):
     sum_loss=0
     for batch in range(0,iterations,batchsize):
-        texts=[]
-        mels=[]
-        mellens=[]
-        textlens=[]
-
-        rnd=np.random.randint(Ntrain)
-        audio_name=audio_dir+audio_list[rnd]
-        text_name=text_dir+text_list[rnd]
-
-        audio=np.load(audio_name)
-        text=np.load(text_name)
-
-        textlens.append(text.shape[0])
-        mellens.append(mel.shape[1])
-
-        ctext=np.pad(text,(0,np.max(textlens)-text.shape[0]),'constant',constant_values=31)
-        cx=np.pad(mel,(0,np.max(mellens)-mel.shape[1]),'constant',constant_values=0)
-
-        texts.append(ctext)
-        mels.append(cx)
-
-        text=xp.array(texts).astype(xp.int32)
-        audio=xp.array(mels).astype(xp.float32)
-
-        text=chainer.as_variable(text)
-        audio=chainer.as_variable(audio)
+        text,x,t,textlens,xlens=batch_make(batchsize)
 
         text_c=text_encoder(text)
         v=text_c[:,0:dims,:]
         k=text_c[:,dims:,:]
-        q=audio_encoder(audio)
+        q=audio_encoder(x)
 
         kq=F.matmul(F.transpose(k,(0,2,1)),q)
         a=F.softmax(kq/F.sqrt(dims))
@@ -87,11 +63,28 @@ for epoch in range(epochs):
         r=F.concat([r,q])
         mel=audio_decoder(r)
 
-        loss_bin=F.mean(F.bernoulli_nll(t,mel,'no'))
-        loss_l1=F.mean_absolute_error(t,mel)
-        w_nt=1-np.exp(-np.square(n/N-t/T)/(2*g*g))
-        loss_att=F.mean(w_nt*a)
+        loss_bin=0
+        for i in range(batchsize):
+            loss_bin+=F.mean(F.bernoulli_nll(t[i,:,;xlens[i]],mel[i,:,:xlens[i]]))
+        loss_bin /= batchsize
 
+        mel=F.sigmoid(mel)
+
+        loss_l1=0
+        for i in range(batchsize):
+            loss_l1+=F.mean_absolute_error(t[i,:,:xlens[i]],mel[i,:,:xlens[i]])
+        loss_l1 /= batchsize
+
+        loss_att=0
+        for i in range(batchsize):
+            N=textlens[i]
+            T=xlens[i]
+            def w_fun(n,t):
+                return 1-np.exp(-((n/(N-1)-t/(T-1))**2)/(2*(0.2**2)))
+            w=np.fromfunction(w_fun,(a.shape[1],T),dtype=np.float32)
+            w=xp.array(w)
+            loss_att+=F.mean(w*a[i,:,:T])
+        loss_att /= batchsize
         loss=loss_bin+loss_l1+loss_att
 
         audio_encoder.cleargrads()
