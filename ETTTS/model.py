@@ -12,24 +12,24 @@ class CasualConv(Chain):
         else:
             self.pad=(ksize-1) * dilate//2
         super(CasualConv,self).__init__(
-            conv=L.DilatedConvolution2D(in_ch,out_ch,(1,ksize),1,(0,self.pad),(1,dilate,initialW=initializers.Normal(0.02)))
+            conv=L.DilatedConvolution2D(in_ch,out_ch,(1,ksize),1,(0,self.pad),(1,dilate),initialW=initializers.Normal(0.02))
         )
 
     def __call__(self,x):
         h=F.expand_dims(x,2)
         h=self.conv(h)
         if self.casual and self.pad > 0:
-            h=h[:,0,:-self.pad]
+            h=h[...,0,:-self.pad]
         else:
-            h=h[:,0,:]
+            h=h[...,0,:]
         h=F.dropout(h,self.dropout)
 
         return h
 
 class HighwayNet(Chain):
-    def __init__(self,d,ksize,dilate,casual):
+    def __init__(self,d,ksize,dilate,casual=True):
         self.d=d
-        super(HighwaNet,self).__init__(
+        super(HighwayNet,self).__init__(
             conv=CasualConv(d,2*d,ksize,dilate,casual)
               )
 
@@ -82,7 +82,7 @@ class TextEnc(Chain):
         return h
 
 class AudioEnc(Chain):
-    def __init__(self,f,d):
+    def __init__(self,d,f):
         super(AudioEnc,self).__init__()
         with self.init_scope():
             self.c0=CasualConv(f,d,1,1)
@@ -133,7 +133,7 @@ class AudioDec(Chain):
             self.c10=CasualConv(d,f,1,1,dropout=0)
 
     def __call__(self,x):
-        h=self.c0(h)
+        h=self.c0(x)
         h=self.c1(h)
         h=self.c2(h)
         h=self.c3(h)
