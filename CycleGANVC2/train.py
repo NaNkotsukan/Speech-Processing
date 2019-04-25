@@ -22,13 +22,22 @@ def set_optimizer(model, alpha=0.0002, beta1=0.5):
     return optimizer
 
 def normalize(x, epsilon=1e-8):
-    x_mean, x_std = np.mean(x + epsilon), np.std(x + epsilon)
+    x_mean, x_std = np.mean(x, axis=1, keepdims=True), np.std(x, axis=1, keepdims=True)
 
     return (x - x_mean) / x_std
 
+def crop(sp, upper_bound=128):
+    if sp.shape[0] < upper_bound + 1:
+        sp = np.pad(sp, ((0, upper_bound-sp.shape[0] + 2), (0, 0)), 'constant', constant_values=0)
+
+    start_point = np.random.randint(sp.shape[0] - upper_bound)
+    cropped = sp[start_point : start_point + upper_bound, :]
+
+    return cropped
+
 parser = argparse.ArgumentParser(description='CycleGAN-VC2')
 parser.add_argument('--epoch', default=1000, type=int, help="the number of epochs")
-parser.add_argument('--batchsize', default=3, type=int, help="batch size")
+parser.add_argument('--batchsize', default=16, type=int, help="batch size")
 parser.add_argument('--testsize', default=2, type=int, help="test size")
 parser.add_argument('--Ntrain', default=5000, type=int, help="data size")
 parser.add_argument('--cw', default=10.0, type=float, help="the weight of cycle loss")
@@ -42,10 +51,12 @@ Ntrain = args.Ntrain
 cycle_weight = args.cw
 identity_weight = args.iw
 
-x_path ='./Dataset/Speech/JSUT/basic5000/wav_16/'
+x_path = './Dataset/Normal_sp/'
+#x_f0_path = '/data/users/hasegawa/Dataset/jsut_ver1.1/basic5000/f0/'
 x_list = os.listdir(x_path)
 x_len = len(x_list)
-y_path = './Dataset/Speech/kaede_tmp/'
+y_path = './Dataset/kaede_sp/'
+#y_f0_path = '/data/users/hasegawa/Dataset/kaede_f0/'
 y_list = os.listdir(y_path)
 y_len = len(y_list)
 
@@ -81,16 +92,15 @@ for epoch in range(epochs):
         y_sp_box = []
         for _ in range(batchsize):
             rnd_x = np.random.randint(x_len)
-            xx = load(x_path + x_list[rnd_x], sampling_rate=16000)
+            sp_x = np.load(x_path + x_list[rnd_x])
+            sp_x = normalize(encode_sp(sp_x, mel_bins=36))
             rnd_y = np.random.randint(y_len)
-            yy = load(y_path + y_list[rnd_y], sampling_rate=16000)
-            xx = random_crop(xx, upper_bound=10200)
-            yy = random_crop(yy, upper_bound=10200)
-            _, sp_x, _ = audio2af(xx)
-            _, sp_y, _ = audio2af(yy)
-
-            sp_x = normalize(encode_sp(sp_x))
-            sp_y = normalize(encode_sp(sp_y))
+            sp_y = np.load(y_path + y_list[rnd_y])
+            sp_y = normalize(encode_sp(sp_y, mel_bins=36))
+            sp_x = crop(sp_x, upper_bound=128)
+            sp_y = crop(sp_y, upper_bound=128)
+            #_, sp_x, _ = audio2af(xx)
+            #_, sp_y, _ = audio2af(yy)
 
             x_sp_box.append(sp_x[np.newaxis,:])
             y_sp_box.append(sp_y[np.newaxis,:])
@@ -119,10 +129,10 @@ for epoch in range(epochs):
         #dis_yy_fake = discriminator_yxy(yxy)
         #dis_yy_real = discriminator_yxy(y)
 
-        dis_loss = F.mean(F.softplus(-dis_y_fake)) + F.mean(F.softplus(dis_y_real))
-        dis_loss += F.mean(F.softplus(-dis_x_fake)) + F.mean(F.softplus(dis_x_real))
-        #dis_loss += F.mean(F.softplus(-dis_xx_fake)) + F.mean(F.softplus(dis_xx_real))
-        #dis_loss += F.mean(F.softplus(-dis_yy_fake)) + F.mean(F.softplus(dis_yy_real))
+        dis_loss = F.mean(F.softplus(dis_y_fake)) + F.mean(F.softplus(-dis_y_real))
+        dis_loss += F.mean(F.softplus(dis_x_fake)) + F.mean(F.softplus(-dis_x_real))
+        #dis_loss += F.mean(F.softplus(dis_xx_fake)) + F.mean(F.softplus(-dis_xx_real))
+        #dis_loss += F.mean(F.softplus(dis_yy_fake)) + F.mean(F.softplus(-dis_yy_real))
 
         discriminator_x.cleargrads()
         discriminator_y.cleargrads()
@@ -156,6 +166,9 @@ for epoch in range(epochs):
         identity_loss_y = F.mean_absolute_error(id_x, x)
         identity_loss = identity_loss_x + identity_loss_y
 
+        if epoch > 20:
+            identity_weight = 0.0
+        
         gen_loss = F.mean(F.softplus(-dis_x_fake)) + F.mean(F.softplus(-dis_y_fake))
         #gen_loss += F.mean(F.softplus(-dis_xx_fake)) + F.mean(F.softplus(-dis_yy_fake))
         gen_loss += cycle_weight * cycle_loss + identity_weight * identity_loss
@@ -171,8 +184,8 @@ for epoch in range(epochs):
         sum_gen_loss += gen_loss.data.get()
 
         if batch == 0:
-            serializers.save_npz('generator_xy.model', generator_xy)
-            serializers.save_npz('generator_yx.model', generator_xy)
+            serializers.save_npz('generator_maletok.model', generator_xy)
+            serializers.save_npz('generator_ktomale.model', generator_yx)
 
     print('epoch : {}'.format(epoch))
     print('Generator loss : {}'.format(sum_gen_loss / x_len))

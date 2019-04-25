@@ -9,7 +9,7 @@ cuda.get_device(0).use()
 
 def glu(x):
     a, b = F.split_axis(x, 2, axis=1)
-    
+
     return a * F.sigmoid(b)
 
 class C2BG(Chain):
@@ -19,7 +19,7 @@ class C2BG(Chain):
         self.up = up
         self.down = down
         with self.init_scope():
-            self.cup = L.Convolution2D(in_ch, out_ch,3,1,1,initialW=w)
+            self.cup = L.Convolution2D(in_ch, out_ch,5,1,2,initialW=w)
             self.cpara = L.Convolution2D(in_ch, out_ch,3,1,1,initialW=w)
             self.cdown = L.Convolution2D(in_ch, out_ch, 4,2,1,initialW=w)
 
@@ -127,6 +127,17 @@ class Generator(Chain):
 
         return h
 
+class BG(Chain):
+    def __init__(self, out_ch):
+        super(BG, self).__init__()
+        with self.init_scope():
+            self.bn0 = L.BatchNormalization(out_ch)
+
+    def __call__(self, x):
+        h = glu(self.bn0(x))
+
+        return h
+
 class Discriminator(Chain):
     def __init__(self,base=64):
         w = initializers.Normal(0.02)
@@ -134,18 +145,22 @@ class Discriminator(Chain):
 
         with self.init_scope():
             self.c0 = L.Convolution2D(1, base*2, 3, 1, 1, initialW=w)
-            self.cbg0 = C2BG(base, base*4, down=True)
-            self.cbg1 = C2BG(base*2, base*8, down=True)
-            self.cbg2 = C2BG(base*4, base*16, down=True)
-            self.cbg3 = C2BG(base*8, base*16, down=True)
-            self.c1 = L.Convolution2D(base*8, 1, 3, 1, 1, initialW=w)
+            self.c1 = L.Convolution2D(base, base*4, 3, 2, 1, initialW=w)
+            self.bg1 = BG(base*4)
+            self.c2 = L.Convolution2D(base*2, base*8, 3, 2, 1, initialW=w)
+            self.bg2 = BG(base*8)
+            self.c3 = L.Convolution2D(base*4, base*16, 3, 2, 1, initialW=w)
+            self.bg3 = BG(base*16)
+            self.c4 = L.Convolution2D(base*8, base*16, (5, 1), 1, (2, 0), initialW=w)
+            self.bg4 = BG(base*16)
+            self.c5 = L.Convolution2D(base*8, 1, (3, 1), 1, (1, 0), initialW=w)
 
     def __call__(self, x):
         h = glu(self.c0(x))
-        h = self.cbg0(h)
-        h = self.cbg1(h)
-        h = self.cbg2(h)
-        h = self.cbg3(h)
-        h = self.c1(h)
+        h = self.bg1(self.c1(h))
+        h = self.bg2(self.c2(h))
+        h = self.bg3(self.c3(h))
+        h = self.bg4(self.c4(h))
+        h = self.c5(h)
 
         return h
