@@ -46,12 +46,12 @@ class CIGLU(Chain):
 
         elif self.up:
             h = F.unpooling_1d(x,2,2,0,cover_all=False)
-            h = self.cpara(h)
+            h = self.cup(h)
             h = self.glu0(self.bn0(h))
 
         else:
             h = self.cpara(x)
-            h=self.glu0(self.bn0(h))
+            h = self.glu0(self.bn0(h))
 
         return h
 
@@ -122,3 +122,43 @@ class Discriminator(Chain):
         h=self.l0(h)
 
         return h
+
+class STFT(Chain):
+    def __init__(self, fftsize=1024, hop_length=160, win_length=400, window=np.hanning):
+        super(STFT, self).__init__()
+        self.hop_length = hop_length
+        self.n_bin = fftsize // 2
+
+        weight_real = xp.cos(-2*xp.pi*xp.arange(fftsize).reshape((fftsize, 1)) * xp.arange(fftsize) / fftsize)[:fftsize//2]
+        weight_imag = xp.som(-2*xp.pi*xp.arange(fftsize).reshape((fftsize, 1)) * xp.arange(fftsize) / fftsize)[:fftsize//2]
+
+        window = window(win_length)
+        window = xp.array(window.reshape(1, 1, 1, fftsize))
+
+        self.add_persistent(
+            'weight_real',
+            window * weight_real.reshape((fftsize//2, 1, 1, fftsize))
+        )
+
+        self.add_persistent(
+            'weight_imag',
+            window * weight_imag.reshape((fftsize//2, 1, 1, fftsize))
+        )
+
+    def _convolve(self, x):
+        x = x.transpose((0, 1, 3, 2))
+        real = F.convolution_2d(x, self.weight_real, stride=(1, self.hop_length))
+        imag = F.convolution_2d(x, self.weight_imag, stride=(1, self.hop_length))
+
+        return real, imag
+
+    def _power(self, x):
+        real, imag = self._convolve(x)
+        power = real ** 2 + imag ** 2
+
+        return power
+
+    def __call__(self, x):
+        power = self._power(x)
+
+        return F.sqrt(power)
