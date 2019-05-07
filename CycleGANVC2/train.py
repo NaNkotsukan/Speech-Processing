@@ -16,17 +16,41 @@ xp = cuda.cupy
 cuda.get_device(0).use()
 
 def set_optimizer(model, alpha=0.0002, beta1=0.5):
+    """Adam optimizer setup
+    
+    Args:
+        model : model paramter
+        alpha (float, optional): Defaults to 0.0002. the alpha parameter of Adam
+        beta1 (float, optional): Defaults to 0.5. the beta1 parameter of Adam
+    """
     optimizer = optimizers.Adam(alpha=alpha, beta1=beta1)
     optimizer.setup(model)
 
     return optimizer
 
-def normalize(x, epsilon=1e-8):
+def normalize(x):
+    """normalization of spectral envelope. mean 0, variance 1
+    
+    Args:
+        x (numpy.float): spectral envelope
+        
+    Returns:
+        numpy.float: normalized spectral envelope
+    """
     x_mean, x_std = np.mean(x, axis=1, keepdims=True), np.std(x, axis=1, keepdims=True)
 
     return (x - x_mean) / x_std
 
 def crop(sp, upper_bound=128):
+    """Cropping of spectral envelope
+    
+    Args:
+        sp (numpy.float): spectral envelope
+        upper_bound (int, optional): Defaults to 128. The size of cropping
+    
+    Returns:
+        numpy.float: cropped spectral envelope
+    """
     if sp.shape[0] < upper_bound + 1:
         sp = np.pad(sp, ((0, upper_bound-sp.shape[0] + 2), (0, 0)), 'constant', constant_values=0)
 
@@ -37,9 +61,9 @@ def crop(sp, upper_bound=128):
 
 parser = argparse.ArgumentParser(description='CycleGAN-VC2')
 parser.add_argument('--epoch', default=1000, type=int, help="the number of epochs")
-parser.add_argument('--batchsize', default=16, type=int, help="batch size")
+parser.add_argument('--batchsize', default=4, type=int, help="batch size")
 parser.add_argument('--testsize', default=2, type=int, help="test size")
-parser.add_argument('--Ntrain', default=5000, type=int, help="data size")
+parser.add_argument('--Ntrain', default=2000, type=int, help="data size")
 parser.add_argument('--cw', default=10.0, type=float, help="the weight of cycle loss")
 parser.add_argument('--iw', default=5.0, type=float, help="the weight of identity loss")
 
@@ -51,12 +75,10 @@ Ntrain = args.Ntrain
 cycle_weight = args.cw
 identity_weight = args.iw
 
-x_path = './Dataset/Normal_sp/'
-#x_f0_path = '/data/users/hasegawa/Dataset/jsut_ver1.1/basic5000/f0/'
+x_path = './jsut_sp/'
 x_list = os.listdir(x_path)
 x_len = len(x_list)
-y_path = './Dataset/kaede_sp/'
-#y_f0_path = '/data/users/hasegawa/Dataset/kaede_f0/'
+y_path = './ayanami/'
 y_list = os.listdir(y_path)
 y_len = len(y_list)
 
@@ -76,13 +98,13 @@ discriminator_x = Discriminator()
 discriminator_x.to_gpu()
 dis_x_opt = set_optimizer(discriminator_x, alpha=0.0001)
 
-discriminator_xyx = Discriminator()
-discriminator_xyx.to_gpu()
-dis_xyx_opt = set_optimizer(discriminator_xyx, alpha=0.0001)
+#discriminator_xyx = Discriminator()
+#discriminator_xyx.to_gpu()
+#dis_xyx_opt = set_optimizer(discriminator_xyx, alpha=0.0001)
 
-discriminator_yxy = Discriminator()
-discriminator_yxy.to_gpu()
-dis_yxy_opt = set_optimizer(discriminator_yxy, alpha=0.0001)
+#discriminator_yxy = Discriminator()
+#discriminator_yxy.to_gpu()
+#dis_yxy_opt = set_optimizer(discriminator_yxy, alpha=0.0001)
 
 for epoch in range(epochs):
     sum_gen_loss = 0
@@ -91,6 +113,7 @@ for epoch in range(epochs):
         x_sp_box = []
         y_sp_box = []
         for _ in range(batchsize):
+            # sp loading -> mel conversion -> normalization -> crop
             rnd_x = np.random.randint(x_len)
             sp_x = np.load(x_path + x_list[rnd_x])
             sp_x = normalize(encode_sp(sp_x, mel_bins=36))
@@ -99,8 +122,6 @@ for epoch in range(epochs):
             sp_y = normalize(encode_sp(sp_y, mel_bins=36))
             sp_x = crop(sp_x, upper_bound=128)
             sp_y = crop(sp_y, upper_bound=128)
-            #_, sp_x, _ = audio2af(xx)
-            #_, sp_y, _ = audio2af(yy)
 
             x_sp_box.append(sp_x[np.newaxis,:])
             y_sp_box.append(sp_y[np.newaxis,:])
@@ -108,16 +129,17 @@ for epoch in range(epochs):
         x = chainer.as_variable(xp.array(x_sp_box).astype(xp.float32))
         y = chainer.as_variable(xp.array(y_sp_box).astype(xp.float32))
 
+        # Discriminator update
         xy = generator_xy(x)
-        #xyx = generator_yx(xy)
+        xyx = generator_yx(xy)
 
         yx = generator_yx(y)
-        #yxy = generator_xy(yx)
+        yxy = generator_xy(yx)
 
         xy.unchain_backward()
-        #xyx.unchain_backward()
+        xyx.unchain_backward()
         yx.unchain_backward()
-        #yxy.unchain_backward()
+        yxy.unchain_backward()
 
         dis_y_fake = discriminator_y(xy)
         dis_y_real = discriminator_y(y)
@@ -145,6 +167,7 @@ for epoch in range(epochs):
         #dis_yxy_opt.update()
         dis_loss.unchain_backward()
 
+        # Generator update
         xy = generator_xy(x)
         xyx = generator_yx(xy)
         id_y = generator_xy(y)
@@ -184,9 +207,9 @@ for epoch in range(epochs):
         sum_gen_loss += gen_loss.data.get()
 
         if batch == 0:
-            serializers.save_npz('generator_maletok.model', generator_xy)
-            serializers.save_npz('generator_ktomale.model', generator_yx)
+            serializers.save_npz('generator_xy.model', generator_xy)
+            serializers.save_npz('generator_yx.model', generator_yx)
 
     print('epoch : {}'.format(epoch))
-    print('Generator loss : {}'.format(sum_gen_loss / x_len))
-    print('Discriminator loss : {}'.format(sum_dis_loss / x_len))
+    print('Generator loss : {}'.format(sum_gen_loss / Ntrain))
+    print('Discriminator loss : {}'.format(sum_dis_loss / Ntrain))

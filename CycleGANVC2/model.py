@@ -13,6 +13,9 @@ def glu(x):
     return a * F.sigmoid(b)
 
 class C2BG(Chain):
+    """2D convolution -> Batch Normalization -> Gated linear unit
+
+    """
     def __init__(self, in_ch, out_ch, up=False, down=False):
         super(C2BG, self).__init__()
         w = initializers.Normal(0.02)
@@ -39,6 +42,9 @@ class C2BG(Chain):
         return h
 
 class C1BG(Chain):
+    """1D convolution -> Batch Normalization -> Gated linear unit
+    
+    """
     def __init__(self, in_ch, out_ch, up=False, down=False):
         super(C1BG, self).__init__()
         w = initializers.Normal(0.02)
